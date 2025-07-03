@@ -17,8 +17,7 @@ import uuid
 
 # Initialize OpenAI
 client = OpenAI()
-model = SentenceTransformer("all-MiniLM-L6-v2")
-model.to('cpu')
+model = SentenceTransformer("all-MiniLM-L6-v2", device='cpu')
 
 # Load and chunk company data
 with open('arslanasghar_full_content.txt', 'r', encoding='utf-8') as f:
