@@ -3,18 +3,19 @@ import json
 import faiss
 import numpy as np
 import tempfile
-import soundfile as sf
 import streamlit as st
-from transformers import AutoModel, AutoTokenizer
 from sentence_transformers import SentenceTransformer, models
 from openai import OpenAI
 from langdetect import detect
 import uuid
 
-# ------------------------ Initialization ------------------------
-client = OpenAI()
+# ------------------------ Initialize OpenAI Client ------------------------
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("Missing OPENAI_API_KEY environment variable.")
+client = OpenAI(api_key=api_key)
 
-# Manual model loading to avoid meta tensor errors on Streamlit Cloud
+# ------------------------ Load Sentence Transformer Model ------------------------
 word_embedding_model = models.Transformer("sentence-transformers/all-MiniLM-L6-v2", do_lower_case=True)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
@@ -30,11 +31,11 @@ dim = embeddings.shape[1]
 index = faiss.IndexFlatIP(dim)
 index.add(embeddings)
 
-# ------------------------ File Setup ------------------------
+# ------------------------ Ensure Required Folders ------------------------
 os.makedirs("memory", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
-# ------------------------ Utilities ------------------------
+# ------------------------ Utility Functions ------------------------
 def retrieve_context(query, threshold=0.5, top_k=3):
     query_emb = model.encode([query])
     scores, indices = index.search(query_emb, top_k)
@@ -72,7 +73,7 @@ def detect_intent(user_text):
             return intent
     return "general"
 
-# ------------------------ Streamlit UI ------------------------
+# ------------------------ Streamlit Interface ------------------------
 st.set_page_config(page_title="Arslan - Voice Assistant", layout="centered")
 st.title("🎙️ Arslan — Your Human Digital Consultant")
 st.markdown("Upload a voice message and let Arslan respond like a human.")
@@ -80,13 +81,14 @@ st.markdown("Upload a voice message and let Arslan respond like a human.")
 user_id = st.text_input("🔐 Enter your User ID:")
 audio_bytes = st.file_uploader("🎧 Upload a voice message (.wav only):", type=["wav"])
 
-# ------------------------ Voice Input Handling ------------------------
+# ------------------------ Process Uploaded Audio ------------------------
 if user_id and audio_bytes:
     with st.spinner("🔄 Processing your voice..."):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_bytes.read())
             audio_path = tmp.name
 
+        # 🔁 Transcribe using Whisper API
         with open(audio_path, "rb") as f:
             result = client.audio.transcriptions.create(model="whisper-1", file=f)
         user_text = result.text.strip()
@@ -115,6 +117,7 @@ if user_id and audio_bytes:
         if discount_offer:
             memory.append({"role": "assistant", "content": discount_offer})
 
+        # 🔁 Chat Completion using GPT-4o
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "system", "content": system_prompt}] + memory[-10:]
@@ -142,4 +145,3 @@ if user_id and audio_bytes:
 
 elif user_id:
     st.info("Please upload a `.wav` file to begin.")
-
