@@ -1,5 +1,3 @@
-import torch
-torch.set_default_device('cpu')
 import os
 import json
 import faiss
@@ -7,7 +5,8 @@ import numpy as np
 import tempfile
 import soundfile as sf
 import streamlit as st
-from sentence_transformers import SentenceTransformer
+from transformers import AutoModel, AutoTokenizer
+from sentence_transformers import SentenceTransformer, models
 from openai import OpenAI
 from langdetect import detect
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
@@ -15,17 +14,15 @@ import av
 import queue
 import uuid
 
-# Initialize OpenAI
+# ------------------------ Initialization ------------------------
 client = OpenAI()
-from transformers import AutoModel, AutoTokenizer
-from sentence_transformers import SentenceTransformer, models
 
+# Safe manual model build to avoid meta tensor errors on Streamlit Cloud
 word_embedding_model = models.Transformer("sentence-transformers/all-MiniLM-L6-v2", do_lower_case=True)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
-
-# Load and chunk company data
+# ------------------------ Load and Embed Knowledge ------------------------
 with open('arslanasghar_full_content.txt', 'r', encoding='utf-8') as f:
     raw_text = f.read()
 
@@ -36,11 +33,11 @@ dim = embeddings.shape[1]
 index = faiss.IndexFlatIP(dim)
 index.add(embeddings)
 
-# Setup directories
+# ------------------------ File Setup ------------------------
 os.makedirs("memory", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
-# Context Retrieval
+# ------------------------ Utilities ------------------------
 def retrieve_context(query, threshold=0.5, top_k=3):
     query_emb = model.encode([query])
     scores, indices = index.search(query_emb, top_k)
@@ -48,7 +45,6 @@ def retrieve_context(query, threshold=0.5, top_k=3):
         return [chunks[i] for i in indices[0]]
     return []
 
-# Memory Handling
 def load_memory(user_id):
     path = f"memory/user_{user_id}.json"
     if os.path.exists(path):
@@ -61,13 +57,11 @@ def save_memory(user_id, messages):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(messages, f, ensure_ascii=False, indent=2)
 
-# Log Chat History
 def append_log(user_id, user_text, ai_reply, intent=None):
     log_path = f"logs/{user_id}.log"
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"User: {user_text}\nIntent: {intent}\nArslan: {ai_reply}\n{'-' * 50}\n")
 
-# Intent Detection
 def detect_intent(user_text):
     keywords = {
         "web": ["website", "web development", "site"],
@@ -81,14 +75,15 @@ def detect_intent(user_text):
             return intent
     return "general"
 
-# WebRTC Audio Capture
+# ------------------------ Audio Processor ------------------------
 audio_queue = queue.Queue()
+
 class AudioProcessor(AudioProcessorBase):
     def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
         audio_queue.put(frame.to_ndarray().flatten())
         return frame
 
-# Streamlit UI
+# ------------------------ Streamlit UI ------------------------
 st.set_page_config(page_title="Arslan - Voice Assistant", layout="centered")
 st.title("🎙️ Arslan — Your Human Digital Consultant")
 st.markdown("Use your voice to talk. Arslan understands, remembers, and replies smartly.")
@@ -107,7 +102,7 @@ webrtc_ctx = webrtc_streamer(
     async_processing=True,
 )
 
-# Process Input
+# ------------------------ Voice Input Handling ------------------------
 if user_id and (audio_bytes or (webrtc_ctx and webrtc_ctx.state.playing and not audio_bytes)):
     with st.spinner("🔄 Processing your voice..."):
         if audio_bytes:
@@ -126,7 +121,7 @@ if user_id and (audio_bytes or (webrtc_ctx and webrtc_ctx.state.playing and not 
                 sf.write(tmp.name, audio_array, samplerate=16000)
                 audio_path = tmp.name
 
-        # ✅ Use Whisper API instead of local whisper.load_model
+        # 🔁 Whisper API Transcription
         with open(audio_path, "rb") as f:
             result = client.audio.transcriptions.create(model="whisper-1", file=f)
         user_text = result.text.strip()
@@ -155,6 +150,7 @@ if user_id and (audio_bytes or (webrtc_ctx and webrtc_ctx.state.playing and not 
         if discount_offer:
             memory.append({"role": "assistant", "content": discount_offer})
 
+        # 🔁 Chat Completion
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "system", "content": system_prompt}] + memory[-10:]
@@ -166,7 +162,6 @@ if user_id and (audio_bytes or (webrtc_ctx and webrtc_ctx.state.playing and not 
         append_log(user_id, user_text, ai_reply, intent)
 
         st.success("✅ Response generated!")
-
         st.markdown(f"**🗣️ You said:** {user_text}")
         st.markdown(f"**🤖 Arslan replied:** {ai_reply}")
 
