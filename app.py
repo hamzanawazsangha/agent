@@ -9,43 +9,30 @@ from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from langdetect import detect
 import whisper
-from io import BytesIO
 
-# ------------------ Cached Initializations ------------------
-
-@st.cache_resource
-def load_embedding_model():
-    return SentenceTransformer("all-MiniLM-L6-v2")
-
-@st.cache_resource
-def load_whisper_model():
-    return whisper.load_model("base")
-
-@st.cache_data
-def load_and_chunk_data(path="arslanasghar_full_content.txt", chunk_size=500):
-    with open(path, 'r', encoding='utf-8') as f:
-        raw_text = f.read()
-    chunks = [raw_text[i:i + chunk_size] for i in range(0, len(raw_text), chunk_size)]
-    embeddings = embedder.encode(chunks)
-    dim = embeddings.shape[1]
-    idx = faiss.IndexFlatIP(dim)
-    idx.add(embeddings)
-    return chunks, idx
-
-embedder = load_embedding_model()
-stt = load_whisper_model()
+# Initialize OpenAI and Whisper
 client = OpenAI()
+stt = whisper.load_model("base", device="cpu")
+model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
 
-chunks, index = load_and_chunk_data()
+# Load and chunk company data
+with open('arslanasghar_full_content.txt', 'r', encoding='utf-8') as f:
+    raw_text = f.read()
 
-# Ensure folders exist
+chunk_size = 500
+chunks = [raw_text[i:i+chunk_size] for i in range(0, len(raw_text), chunk_size)]
+embeddings = model.encode(chunks)
+
+dim = embeddings.shape[1]
+index = faiss.IndexFlatIP(dim)
+index.add(embeddings)
+
+# Create memory and log folders
 os.makedirs("memory", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
-# ------------------ Helper Functions ------------------
-
 def retrieve_context(query, threshold=0.5, top_k=3):
-    query_emb = embedder.encode([query])
+    query_emb = model.encode([query])
     scores, indices = index.search(query_emb, top_k)
     if scores[0][0] >= threshold:
         return [chunks[i] for i in indices[0]]
@@ -81,24 +68,26 @@ def detect_intent(user_text):
             return intent
     return "general"
 
-# ------------------ Streamlit UI ------------------
-
+# Streamlit UI
 st.set_page_config(page_title="Arslan - Voice Assistant", layout="centered")
 st.title("🎙️ Arslan — Your Human Digital Consultant")
 st.markdown("Upload your voice message or type below. Arslan understands, remembers, and replies in your language.")
 
 user_id = st.text_input("🔐 Enter your User ID:")
 audio_bytes = st.file_uploader("🎧 Upload a voice message (WAV only):", type=["wav"])
-typed_text = None
 
+# If no audio, show text input
+typed_text = None
 if user_id and not audio_bytes:
     typed_text = st.text_input("📝 Or type your question:")
 
+# Process input (voice or typed)
 if user_id and (audio_bytes or typed_text):
     if audio_bytes:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_bytes.read())
             audio_path = tmp.name
+
         result = stt.transcribe(audio_path)
         user_text = result["text"].strip()
         if not user_text:
@@ -113,8 +102,9 @@ if user_id and (audio_bytes or typed_text):
     context_text = "\n".join(context) if context else ""
     intent = detect_intent(user_text)
 
+    discount_offer = ""
     if intent == "pricing":
-        memory.append({"role": "assistant", "content": "You're eligible for a special 10% discount on all services today!"})
+        discount_offer = "You're eligible for a special 10% discount on all services today!"
 
     if not memory:
         memory.append({"role": "assistant", "content": "Hi there! I'm Arslan. May I know your name?"})
@@ -130,6 +120,8 @@ if user_id and (audio_bytes or typed_text):
     )
     if context_text:
         system_prompt += f"\nRelevant info: {context_text}"
+    if discount_offer:
+        memory.append({"role": "assistant", "content": discount_offer})
 
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -144,13 +136,15 @@ if user_id and (audio_bytes or typed_text):
     st.markdown(f"**🗣️ You said:** {user_text}")
     st.markdown(f"**🤖 Arslan replied:** {ai_reply}")
 
-    audio_data = client.audio.speech.create(
-        model="tts-1",
-        voice="echo",
-        input=ai_reply
-    )
-    audio_bytes = BytesIO(audio_data.content)
-    st.audio(audio_bytes, format="audio/mp3")
+    with open("response.mp3", "wb") as f:
+        audio_data = client.audio.speech.create(
+            model="tts-1",
+            voice="echo",  # Male-sounding voice
+            input=ai_reply
+        )
+        f.write(audio_data.content)
+
+    st.audio("response.mp3", format="audio/mp3")
 
 elif user_id:
     st.info("Please upload your voice message or type your question to begin.")
