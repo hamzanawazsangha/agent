@@ -1,3 +1,5 @@
+import torch
+torch.set_default_device('cpu')
 import os
 import json
 import faiss
@@ -16,6 +18,7 @@ import uuid
 # Initialize OpenAI
 client = OpenAI()
 model = SentenceTransformer("all-MiniLM-L6-v2")
+model.to('cpu')
 
 # Load and chunk company data
 with open('arslanasghar_full_content.txt', 'r', encoding='utf-8') as f:
