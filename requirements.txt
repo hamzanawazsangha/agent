@@ -9,3 +9,4 @@ torch
 torchaudio
 streamlit-webrtc
 av
+openai
