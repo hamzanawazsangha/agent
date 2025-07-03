@@ -3,9 +3,9 @@ import json
 import faiss
 import numpy as np
 import tempfile
-import soundfile as sf
 import streamlit as st
 import torch
+import torchaudio
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from langdetect import detect
@@ -77,28 +77,43 @@ st.markdown("Upload your voice message or type below. Arslan understands, rememb
 user_id = st.text_input("🔐 Enter your User ID:")
 audio_bytes = st.file_uploader("🎧 Upload a voice message (WAV only):", type=["wav"])
 
-# If no audio, show text input
 typed_text = None
 if user_id and not audio_bytes:
     typed_text = st.text_input("📝 Or type your question:")
 
-# Process input (voice or typed)
 if user_id and (audio_bytes or typed_text):
     if audio_bytes:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_bytes.read())
             audio_path = tmp.name
 
-        # ---- Whisper Transcription without FFmpeg ----
-        audio_array, sample_rate = sf.read(audio_path)
-        if len(audio_array.shape) > 1:  # convert stereo to mono
-            audio_array = np.mean(audio_array, axis=1)
-        audio_tensor = torch.tensor(audio_array).float()
-        audio_tensor = whisper.pad_or_trim(audio_tensor)
+        # ----- Improved Transcription Using Torchaudio -----
+        waveform, sample_rate = torchaudio.load(audio_path)
+
+        # Convert to mono if needed
+        if waveform.shape[0] > 1:
+            waveform = torch.mean(waveform, dim=0, keepdim=True)
+
+        # Resample to 16 kHz
+        if sample_rate != 16000:
+            resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
+            waveform = resampler(waveform)
+
+        # Normalize to [-1, 1]
+        waveform = waveform.squeeze().float()
+        max_val = max(abs(waveform.max()), abs(waveform.min()))
+        if max_val > 0:
+            waveform = waveform / max_val
+
+        # Pad or trim to fit Whisper's input size
+        audio_tensor = whisper.pad_or_trim(waveform)
         mel = whisper.log_mel_spectrogram(audio_tensor).to(stt.device)
+
+        # Decode
         options = whisper.DecodingOptions(fp16=False)
         result = whisper.decode(stt, mel, options)
         user_text = result.text.strip()
+
         if not user_text:
             st.warning("Sorry, couldn't understand the audio. Try again.")
             st.stop()
