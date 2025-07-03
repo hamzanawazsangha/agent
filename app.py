@@ -8,16 +8,14 @@ import streamlit as st
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from langdetect import detect
-import whisper
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
 import av
 import queue
 import uuid
 
-# Initialize OpenAI and models on CPU
+# Initialize OpenAI
 client = OpenAI()
-stt = whisper.load_model("base", device="cpu")
-model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # Load and chunk company data
 with open('arslanasghar_full_content.txt', 'r', encoding='utf-8') as f:
@@ -120,8 +118,11 @@ if user_id and (audio_bytes or (webrtc_ctx and webrtc_ctx.state.playing and not 
                 sf.write(tmp.name, audio_array, samplerate=16000)
                 audio_path = tmp.name
 
-        result = stt.transcribe(audio_path)
-        user_text = result["text"].strip()
+        # ✅ Use Whisper API instead of local whisper.load_model
+        with open(audio_path, "rb") as f:
+            result = client.audio.transcriptions.create(model="whisper-1", file=f)
+        user_text = result.text.strip()
+
         language = detect(user_text)
         memory = load_memory(user_id)
         context = retrieve_context(user_text)
