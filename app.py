@@ -5,6 +5,7 @@ import numpy as np
 import tempfile
 import soundfile as sf
 import streamlit as st
+import torch
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from langdetect import detect
@@ -88,8 +89,16 @@ if user_id and (audio_bytes or typed_text):
             tmp.write(audio_bytes.read())
             audio_path = tmp.name
 
-        result = stt.transcribe(audio_path)
-        user_text = result["text"].strip()
+        # ---- Whisper Transcription without FFmpeg ----
+        audio_array, sample_rate = sf.read(audio_path)
+        if len(audio_array.shape) > 1:  # convert stereo to mono
+            audio_array = np.mean(audio_array, axis=1)
+        audio_tensor = torch.tensor(audio_array).float()
+        audio_tensor = whisper.pad_or_trim(audio_tensor)
+        mel = whisper.log_mel_spectrogram(audio_tensor).to(stt.device)
+        options = whisper.DecodingOptions(fp16=False)
+        result = whisper.decode(stt, mel, options)
+        user_text = result.text.strip()
         if not user_text:
             st.warning("Sorry, couldn't understand the audio. Try again.")
             st.stop()
