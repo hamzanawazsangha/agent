@@ -13,7 +13,7 @@ import uuid
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     raise ValueError("Missing OPENAI_API_KEY environment variable.")
-client = OpenAI(api_key=api_key)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # ------------------------ Load Sentence Transformer Model ------------------------
 word_embedding_model = models.Transformer("sentence-transformers/all-MiniLM-L6-v2", do_lower_case=True)
