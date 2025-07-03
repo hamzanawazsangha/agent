@@ -1,12 +1,18 @@
-streamlit
-sentence-transformers
-langdetect
-faiss-cpu
-soundfile
+# Core app dependencies
+streamlit==1.35.0
 openai-whisper
-whisper
-torch
-torchaudio
-streamlit-webrtc
-av
-openai
+openai==1.30.1
+sentence-transformers==2.7.0
+faiss-cpu==1.7.4
+langdetect==1.0.9
+soundfile==0.12.1
+numpy==1.26.4
+av==12.0.0
+streamlit-webrtc==0.50.3
+
+# PyTorch for CPU (compatible with sentence-transformers)
+torch==2.2.2
+transformers==4.41.2
+
+# Optional (safe file ops & encoding)
+tqdm==4.66.4
