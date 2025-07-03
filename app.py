@@ -9,15 +9,12 @@ from transformers import AutoModel, AutoTokenizer
 from sentence_transformers import SentenceTransformer, models
 from openai import OpenAI
 from langdetect import detect
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
-import av
-import queue
 import uuid
 
 # ------------------------ Initialization ------------------------
 client = OpenAI()
 
-# Safe manual model build to avoid meta tensor errors on Streamlit Cloud
+# Manual model loading to avoid meta tensor errors on Streamlit Cloud
 word_embedding_model = models.Transformer("sentence-transformers/all-MiniLM-L6-v2", do_lower_case=True)
 pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
 model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
@@ -75,53 +72,21 @@ def detect_intent(user_text):
             return intent
     return "general"
 
-# ------------------------ Audio Processor ------------------------
-audio_queue = queue.Queue()
-
-class AudioProcessor(AudioProcessorBase):
-    def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
-        audio_queue.put(frame.to_ndarray().flatten())
-        return frame
-
 # ------------------------ Streamlit UI ------------------------
 st.set_page_config(page_title="Arslan - Voice Assistant", layout="centered")
 st.title("🎙️ Arslan — Your Human Digital Consultant")
-st.markdown("Use your voice to talk. Arslan understands, remembers, and replies smartly.")
+st.markdown("Upload a voice message and let Arslan respond like a human.")
 
 user_id = st.text_input("🔐 Enter your User ID:")
 audio_bytes = st.file_uploader("🎧 Upload a voice message (.wav only):", type=["wav"])
 
-st.markdown("---")
-st.markdown("🎤 **Or use your microphone below (Chrome/Edge recommended):**")
-
-webrtc_ctx = webrtc_streamer(
-    key="mic",
-    mode=WebRtcMode.SENDONLY,
-    audio_processor_factory=AudioProcessor,
-    media_stream_constraints={"audio": True, "video": False},
-    async_processing=True,
-)
-
 # ------------------------ Voice Input Handling ------------------------
-if user_id and (audio_bytes or (webrtc_ctx and webrtc_ctx.state.playing and not audio_bytes)):
+if user_id and audio_bytes:
     with st.spinner("🔄 Processing your voice..."):
-        if audio_bytes:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                tmp.write(audio_bytes.read())
-                audio_path = tmp.name
-        else:
-            st.warning("Recording in progress... please speak clearly.")
-            audio_data = []
-            while not audio_queue.empty():
-                audio_data.append(audio_queue.get())
-            if not audio_data:
-                st.stop()
-            audio_array = np.concatenate(audio_data).astype(np.float32)
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                sf.write(tmp.name, audio_array, samplerate=16000)
-                audio_path = tmp.name
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(audio_bytes.read())
+            audio_path = tmp.name
 
-        # 🔁 Whisper API Transcription
         with open(audio_path, "rb") as f:
             result = client.audio.transcriptions.create(model="whisper-1", file=f)
         user_text = result.text.strip()
@@ -150,7 +115,6 @@ if user_id and (audio_bytes or (webrtc_ctx and webrtc_ctx.state.playing and not 
         if discount_offer:
             memory.append({"role": "assistant", "content": discount_offer})
 
-        # 🔁 Chat Completion
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "system", "content": system_prompt}] + memory[-10:]
@@ -177,4 +141,5 @@ if user_id and (audio_bytes or (webrtc_ctx and webrtc_ctx.state.playing and not 
         st.audio(response_filename, format="audio/mp3")
 
 elif user_id:
-    st.info("Please upload a `.wav` file or allow mic access to start speaking.")
+    st.info("Please upload a `.wav` file to begin.")
+
