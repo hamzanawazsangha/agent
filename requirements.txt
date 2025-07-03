@@ -3,7 +3,7 @@ sentence-transformers
 langdetect
 faiss-cpu
 soundfile
-openai
+openai-whisper
 whisper
 torch
 torchaudio
