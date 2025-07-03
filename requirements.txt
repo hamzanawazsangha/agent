@@ -1,11 +1,9 @@
-openai>=1.2.0
+streamlit
+openai
 openai-whisper
 sentence-transformers
 faiss-cpu
 numpy
-soundfile
+torchaudio
 langdetect
-streamlit==1.32.2
 torch
-streamlit_webrtc
-av
