@@ -17,7 +17,13 @@ import uuid
 
 # Initialize OpenAI
 client = OpenAI()
-model = SentenceTransformer("all-MiniLM-L6-v2", device='cpu')
+from transformers import AutoModel, AutoTokenizer
+from sentence_transformers import SentenceTransformer, models
+
+word_embedding_model = models.Transformer("sentence-transformers/all-MiniLM-L6-v2", do_lower_case=True)
+pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
+model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+
 
 # Load and chunk company data
 with open('arslanasghar_full_content.txt', 'r', encoding='utf-8') as f:
